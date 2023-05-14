@@ -10,8 +10,15 @@ repositories {
 }
 
 dependencies {
+    implementation 'com.opencsv:opencsv:5.7.1'
+    implementation 'org.apache.commons:commons-imaging:1.0-alpha2'
+
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.1'
     testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.8.1'
+}
+
+task runImageDownloader(type: JavaExec) {
+    main = 'ImageDownloader'
 }
 
 test {
