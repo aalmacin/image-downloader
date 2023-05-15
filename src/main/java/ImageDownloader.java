@@ -3,19 +3,50 @@ import com.opencsv.CSVParserBuilder;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.exceptions.CsvException;
-import org.apache.commons.imaging.*;
 
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
+import java.util.logging.FileHandler;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 public class ImageDownloader {
-    public static void main(String[] args) {
+    private static final Logger logger = Logger.getLogger(ImageDownloader.class.getName());
+    private static final Path LOG_FILE_PATH = Paths.get("logs");
+
+    interface Counter {
+        void increment();
+
+        int getCount();
+    }
+
+    public static void main(String[] args) throws IOException {
+        String logFilePath = LOG_FILE_PATH.resolve("log.txt").toString();
+        FileHandler fileHandler = new FileHandler(logFilePath);
+        fileHandler.setFormatter(new SimpleFormatter());
+        final Counter completedCounter = new Counter() {
+            int count = 0;
+
+            public void increment() {
+                count++;
+            }
+
+            @Override
+            public int getCount() {
+                return count;
+            }
+        };
+        logger.addHandler(fileHandler);
+
         if (args.length != 2) {
-            System.out.println("Usage: java ImageDownloader <url> <filename>");
+            logger.severe("Usage: java ImageDownloader <url> <filename>");
             System.exit(1);
         }
 
@@ -30,8 +61,8 @@ public class ImageDownloader {
             List<String[]> imageUrls = reader.readAll();
             imageUrls.forEach((row) -> {
                 if (row.length == 2) {
-                    System.out.println("Downloading: " + row[0]);
-                    System.out.println("Saving to: " + row[1]);
+                    logger.info("Downloading: " + row[0]);
+                    logger.info("Saving to: " + row[1]);
                     try {
                         File file = new File(getFileName(
                                 imagesFolderPath,
@@ -41,32 +72,35 @@ public class ImageDownloader {
                             byte[] imageBytes = downloadImage(row[0]);
                             byte[] pngBytes = convertToPNG(imageBytes);
                             saveImage(pngBytes, row[1], imagesFolderPath);
+                            completedCounter.increment();
+                            logger.info("Completed: " + completedCounter.getCount());
                         } else {
-                            System.out.println("File already exists: " + row[1]);
+                            completedCounter.increment();
+                            logger.info("File already exists: " + row[1]);
+                            logger.info("Completed: " + completedCounter.getCount());
                         }
                     } catch (MalformedURLException e) {
-                        System.out.println("Error downloading image: " + row[0]);
-                    } catch (ImageWriteException e) {
-                        System.out.println("Error writing image: " + row[1]);
+                        logger.severe("Error downloading image: " + row[0]);
                     } catch (IOException e) {
-                        System.out.println("Error saving image: " + row[1]);
-                    } catch (ImageReadException e) {
-                        System.out.println("Error reading image: " + row[0]);
+                        logger.severe("Error saving image: " + row[1]);
+                    } catch (Exception e) {
+                        logger.severe("Error: " + e.getMessage());
                     }
                 } else {
-                    System.out.println("Error row size: " + Arrays.toString(row));
+                    logger.severe("Error row size: " + Arrays.toString(row));
                 }
             });
         } catch (FileNotFoundException e) {
-            System.out.println("File not found: " + tsvFilePath);
+            logger.severe("File not found: " + tsvFilePath);
             System.exit(1);
         } catch (IOException e) {
-            System.out.println("Error reading file: " + tsvFilePath);
+            logger.severe("Error reading file: " + tsvFilePath);
             System.exit(1);
         } catch (CsvException e) {
-            System.out.println("Error parsing file: " + tsvFilePath);
+            logger.severe("Error parsing file: " + tsvFilePath);
             System.exit(1);
         }
+        logger.info("Completed: " + completedCounter.getCount());
     }
 
     private static String getFileName(String imagesFolderPath, String fileName) {
@@ -82,15 +116,15 @@ public class ImageDownloader {
         try (FileOutputStream fos = new FileOutputStream(imgFileName)) {
             fos.write(pngBytes);
         } catch (IOException e) {
-            System.out.println("Error saving image: " + imgFileName);
+            logger.severe("Error saving image: " + imgFileName);
         }
     }
 
     private static byte[] downloadImage(String imageUrl) throws IOException {
         URL url = new URL(imageUrl);
-        try(InputStream in = url.openStream();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ){
+        try (InputStream in = url.openStream();
+             ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ) {
             byte[] b = new byte[2048];
             int bytesRead;
             while ((bytesRead = in.read(b)) != -1) {
@@ -100,13 +134,34 @@ public class ImageDownloader {
         }
     }
 
-    private static byte[] convertToPNG(byte[] bytes) throws IOException, ImageReadException, ImageWriteException {
-        BufferedImage bufferedImage = Imaging.getBufferedImage(bytes);
+    //    private static byte[] convertToPNG(byte[] bytes) throws IOException, ImageReadException, ImageWriteException {
+//        BufferedImage bufferedImage = Imaging.getBufferedImage(bytes);
+//
+//        return Imaging.writeImageToBytes(
+//                bufferedImage,
+//                ImageFormats.PNG,
+//                null
+//        );
+//    }
 
-        return Imaging.writeImageToBytes(
-                bufferedImage,
-                ImageFormats.PNG,
-                null
-        );
+    public static byte[] convertToPNG(byte[] imageBytes) throws IOException {
+        // Read the image from the byte array
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(imageBytes);
+        BufferedImage image = ImageIO.read(inputStream);
+
+        // Create an output stream for the PNG image
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        // Write the image as PNG to the output stream
+        ImageIO.write(image, "PNG", outputStream);
+
+        // Retrieve the PNG byte array
+        byte[] pngBytes = outputStream.toByteArray();
+
+        // Clean up resources
+        outputStream.close();
+        inputStream.close();
+
+        return pngBytes;
     }
 }
